@@ -1,0 +1,5 @@
+. better list handling
+. bind cores
+. parallelism
+ . tbb
+ . xkaapi
