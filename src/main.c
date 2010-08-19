@@ -1,11 +1,11 @@
 /* static time config */
 #define CONFIG_LR_PARALLEL 1
-#define CONFIG_LR_SUBLIST_COUNT 10 /* per thread sublist count */
 #define CONFIG_LR_SEQUENTIAL 1
+#define CONFIG_LR_SUBLIST_COUNT 10 /* per thread sublist count */
 #define CONFIG_LR_THREAD_COUNT 16 /* assume >= node_count */
 #define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
-#define CONFIG_LR_CONTIGUOUS_LIST 1
+#define CONFIG_LR_CONTIGUOUS_LIST 1 /* below ones mutually exclusive */
 #define CONFIG_LR_REVERSE_LIST 0
 #define CONFIG_LR_RANDOM_LIST 0
 
@@ -111,7 +111,6 @@ static int lr_list_create(lr_list_t** l, size_t count)
   index = lr_allocate_node();
   prev = (*l)->nodes + (size_t)index;
   (*l)->head = prev;
-  --count;
 
   while (--count)
   {
