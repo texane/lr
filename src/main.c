@@ -6,8 +6,8 @@
 #define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
 #define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
-#define CONFIG_LR_REVERSE_LIST 1
-#define CONFIG_LR_RANDOM_LIST 0
+#define CONFIG_LR_REVERSE_LIST 0
+#define CONFIG_LR_RANDOM_LIST 1
 
 
 #include <stdio.h>
@@ -78,14 +78,43 @@ static lr_index_t lr_allocate_node(void)
 
 #if CONFIG_LR_RANDOM_LIST
 
+#include <unistd.h>
+#include <time.h>
+#include <string.h>
+#include <sys/types.h>
+
+static unsigned char lr_node_bitmap[CONFIG_LR_NODE_COUNT];
+static size_t lr_node_count;
+
 static int lr_init_node_allocator(size_t count)
 {
-  return -1;
+  srand(getpid() * time(NULL));
+  lr_node_count = count;
+  memset(lr_node_bitmap, 0, sizeof(lr_node_bitmap));
+  return 0;
 }
 
 static lr_index_t lr_allocate_node(void) 
 {
-  return 0;
+  const size_t saved_pos = rand() % CONFIG_LR_NODE_COUNT;
+  size_t pos;
+
+  for (pos = saved_pos; pos < lr_node_count; ++pos)
+    if (lr_node_bitmap[pos] == 0)
+    {
+      lr_node_bitmap[pos] = 1;
+      goto on_index_found;
+    }
+
+  for (pos = 0; pos < saved_pos; ++pos)
+    if (lr_node_bitmap[pos] == 0)
+    {
+      lr_node_bitmap[pos] = 1;
+      goto on_index_found;
+    }
+
+ on_index_found:
+  return pos;
 }
 
 #endif /* CONFIG_LR_RANDOM_LIST */
