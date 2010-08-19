@@ -8,6 +8,8 @@
 #define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
 #define CONFIG_LR_REVERSE_LIST 0
 #define CONFIG_LR_RANDOM_LIST 1
+#define CONFIG_LR_CACHELINE_SIZE 64
+#define CONFIG_LR_CACHELINE_ALIGNED 0
 
 
 #include <stdio.h>
@@ -25,6 +27,9 @@ typedef struct lr_node
 {
   lr_index_t next;
   lr_index_t rank;
+#if CONFIG_LR_CACHELINE_ALIGNED
+  double pad[(CONFIG_LR_CACHELINE_SIZE - 8) / sizeof(double)];
+#endif
 } lr_node_t;
 
 
@@ -34,7 +39,10 @@ typedef struct lr_list
 {
   size_t size;
   lr_node_t* head;
-  lr_node_t nodes[1] __attribute__((aligned(64)));
+#if CONFIG_LR_CACHELINE_ALIGNED
+  double pad[(CONFIG_LR_CACHELINE_SIZE - 16) / sizeof(double)];
+#endif
+  lr_node_t nodes[1];
 } lr_list_t;
 
 
@@ -127,8 +135,9 @@ static int lr_list_create(lr_list_t** l, size_t count)
   lr_node_t* prev;
   lr_index_t index;
 
-  *l = malloc(total_size);
-  if (*l == NULL)
+  const int error = posix_memalign
+    ((void**)l, CONFIG_LR_CACHELINE_SIZE, total_size);
+  if (error)
     return -1;
 
   (*l)->size = count;
