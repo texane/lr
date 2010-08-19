@@ -5,8 +5,8 @@
 #define CONFIG_LR_THREAD_COUNT 16 /* assume >= node_count */
 #define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
-#define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
-#define CONFIG_LR_REVERSE_LIST 1
+#define CONFIG_LR_CONTIGUOUS_LIST 1 /* below ones mutually exclusive */
+#define CONFIG_LR_REVERSE_LIST 0
 #define CONFIG_LR_RANDOM_LIST 0
 
 
