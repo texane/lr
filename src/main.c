@@ -1,10 +1,13 @@
 /* static time config */
 #define CONFIG_LR_PARALLEL 1
-#define CONFIG_LR_SUBLIST_COUNT 100 /* per thread sublist count */
+#define CONFIG_LR_SUBLIST_COUNT 10 /* per thread sublist count */
 #define CONFIG_LR_SEQUENTIAL 1
 #define CONFIG_LR_THREAD_COUNT 16 /* assume >= node_count */
 #define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
+#define CONFIG_LR_CONTIGUOUS_LIST 1
+#define CONFIG_LR_REVERSE_LIST 0
+#define CONFIG_LR_RANDOM_LIST 0
 
 
 #include <stdio.h>
@@ -37,13 +40,63 @@ typedef struct lr_list
 
 /* lr list functions */
 
+#if CONFIG_LR_CONTIGUOUS_LIST
+
+static size_t lr_node_index;
+
+static int lr_init_node_allocator(size_t count)
+{
+  /* unused */
+  count = count;
+  lr_node_index = 0;
+  return 0;
+}
+
+static lr_index_t lr_allocate_node(void)
+{
+  return (lr_index_t)(lr_node_index++);
+}
+
+#endif /* CONFIG_LR_CONTIGUOUS_LIST */
+
+#if CONFIG_LR_REVERSE_LIST
+
+static size_t lr_node_count;
+
+static int lr_init_node_allocator(size_t count)
+{
+  lr_node_count = count;
+  return 0;
+}
+
+static lr_index_t lr_allocate_node(void)
+{
+  return (lr_index_t)(--lr_node_count);
+}
+
+#endif /* CONFIG_LR_REVERSE_LIST */
+
+#if CONFIG_LR_RANDOM_LIST
+
+static int lr_init_node_allocator(size_t count)
+{
+  return -1;
+}
+
+static lr_index_t lr_allocate_node(void) 
+{
+  return 0;
+}
+
+#endif /* CONFIG_LR_RANDOM_LIST */
+
 static int lr_list_create(lr_list_t** l, size_t count)
 {
   const size_t total_size =
     offsetof(lr_list_t, nodes) + count * sizeof(lr_node_t);
 
-  lr_node_t* pos;
-  size_t i;
+  lr_node_t* prev;
+  lr_index_t index;
 
   *l = malloc(total_size);
   if (*l == NULL)
@@ -51,15 +104,23 @@ static int lr_list_create(lr_list_t** l, size_t count)
 
   (*l)->size = count;
 
-  /* set head pointer */
-  (*l)->head = (*l)->nodes;
+  /* init node allocator */
+  lr_init_node_allocator(count);
 
-  /* set next pointers */
-  for (pos = (*l)->nodes, i = 0; i < (count - 1); ++i, ++pos)
-    pos->next = (lr_index_t)(i + 1);
-  (*l)->nodes[count - 1].next = -((lr_index_t)count);
+  /* allocate one and dont care about this case */
+  index = lr_allocate_node();
+  prev = (*l)->nodes + (size_t)index;
+  (*l)->head = prev;
+  --count;
 
-  /* has yet to be unranked */
+  while (--count)
+  {
+    index = lr_allocate_node();
+    prev->next = index;
+    prev = (*l)->nodes + (size_t)index;
+  }
+
+  prev->next = (lr_index_t)-(*l)->size;
 
   return 0;
 }
@@ -86,21 +147,21 @@ static inline const lr_node_t* lr_list_next_const
 
 static inline lr_node_t* lr_list_head(lr_list_t* l)
 {
-  return l->nodes;
+  return l->head;
 }
 
 
 static inline unsigned int lr_list_is_last_node
 (const lr_list_t* l, const lr_node_t* n)
 {
-  return n->next == -((lr_index_t)l->size);
+  return n->next == (lr_index_t)-l->size;
 }
 
 
 static inline unsigned int lr_list_is_last_index
 (const lr_list_t* l, lr_index_t i)
 {
-  return i == -((lr_index_t)l->size);
+  return i == (lr_index_t)-l->size;
 }
 
 
@@ -210,7 +271,9 @@ static inline size_t lr_list_node_to_index
 static lr_sublist_t* lr_list_split
 (lr_list_t* list, unsigned int tid, lr_sublist_t* sublists, size_t count)
 {
-  /* sublists the whole sublist array
+  /* list the whole list to split
+     ti the thread identifier
+     sublists the whole sublist array
      count the per thread sublist count
   */
 
