@@ -1,4 +1,9 @@
 . implementation
  . gpu implementation
+  . l idee serait de demarrer la copie de donnee async puis ensuite
+  appeler un kernel de ranking par sousliste
+   . le cas simple: le faire pour l update globale
+   . moins simple: le faire pour une liste locale. c est reellement
+   plus complique que le cas de l update globale?
  . tbb implementation
  . xkaapi implementation
