@@ -1,5 +1,7 @@
-. better list handling
-. bind cores
-. parallelism
- . tbb
- . xkaapi
+. make it working for one thread
+. random node allocation
+. implementation
+ . improve pthread implementations by splitting the only thread code
+ . tbb implementation
+ . xkaapi implementation
+ . gpu implementation

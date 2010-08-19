@@ -317,7 +317,7 @@ static lr_sublist_t* lr_list_split
     {
       node = &list->nodes[list_lo];
       pos->saved_next = node->next;
-      /* +1 since may be 0 */
+      /* +1 since may be 0. assume sublist_pos < (list->size-1) */
       node->next = (lr_index_t)-(sublist_pos + 1);
       pos->head = (lr_index_t)list_lo;
     }
@@ -435,7 +435,7 @@ static void* lr_thread_entry(void* p)
 
   /* step3: prefix ranks */
   pthread_barrier_wait(&sd->barrier);
-  if (tid == 0)
+  if ((tid == 0) && (sd->sublists_head->next != -1))
   {
     lr_index_t prev_rank = sd->sublists_head->last_rank;
     lr_sublist_t* pos = &sd->sublists[sd->sublists_head->next];
