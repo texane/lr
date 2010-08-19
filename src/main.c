@@ -5,8 +5,8 @@
 #define CONFIG_LR_THREAD_COUNT 16 /* assume >= node_count */
 #define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
-#define CONFIG_LR_CONTIGUOUS_LIST 1 /* below ones mutually exclusive */
-#define CONFIG_LR_REVERSE_LIST 0
+#define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
+#define CONFIG_LR_REVERSE_LIST 1
 #define CONFIG_LR_RANDOM_LIST 0
 
 
@@ -71,7 +71,7 @@ static int lr_init_node_allocator(size_t count)
 
 static lr_index_t lr_allocate_node(void)
 {
-  return (lr_index_t)(--lr_node_count);
+  return (lr_index_t)--lr_node_count;
 }
 
 #endif /* CONFIG_LR_REVERSE_LIST */
@@ -166,16 +166,18 @@ static inline unsigned int lr_list_is_last_index
 
 static inline const lr_node_t* lr_list_head_const(const lr_list_t* l)
 {
-  return l->nodes;
+  return l->head;
 }
 
 
 static void lr_list_unrank(lr_list_t* l)
 {
+  /* todo: contiguous accesses */
+
   lr_node_t* pos = lr_list_head(l);
   for (; ; pos = lr_list_next(l, pos))
   {
-    pos->rank = (lr_index_t)(-1);
+    pos->rank = (lr_index_t)-1;
 
     if (lr_list_is_last_node(l, pos))
       break ;
@@ -551,7 +553,7 @@ static void lr_list_rank_par(lr_list_t* list, struct timeval* tm)
 
 static void lr_list_rank_seq(lr_list_t* l, struct timeval* tm)
 {
-  lr_node_t* pos = l->head;
+  lr_node_t* pos = lr_list_head(l);
   lr_index_t rank = 0;
 
   struct timeval tms[2];
@@ -576,13 +578,13 @@ static void lr_list_rank_seq(lr_list_t* l, struct timeval* tm)
 static int lr_list_check(const lr_list_t* l)
 {
   const lr_node_t* pos = lr_list_head_const(l);
-  lr_index_t i = 0;
+  lr_index_t rank = 0;
 
-  for (; ; ++i, pos = lr_list_next_const(l, pos))
+  for (; ; ++rank, pos = lr_list_next_const(l, pos))
   {
-    if (pos->rank != i)
+    if (pos->rank != rank)
     {
-      printf("[!] lr_check @%lu, %d\n", (size_t)i, pos->rank);
+      printf("[!] lr_check @%lu, %d\n", (size_t)rank, pos->rank);
       return -1;
     }
 
