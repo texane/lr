@@ -1,5 +1,4 @@
 . implementation
- . improve pthread implementations by splitting the only thread code
+ . gpu implementation
  . tbb implementation
  . xkaapi implementation
- . gpu implementation

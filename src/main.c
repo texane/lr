@@ -2,7 +2,7 @@
 #define CONFIG_LR_PARALLEL 1
 #define CONFIG_LR_SEQUENTIAL 1
 #define CONFIG_LR_SUBLIST_COUNT 1 /* per thread sublist count */
-#define CONFIG_LR_THREAD_COUNT 16 /* assume >= node_count */
+#define CONFIG_LR_THREAD_COUNT 16 /* assume < node_count */
 #define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
 #define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
@@ -521,16 +521,18 @@ static void* lr_thread_entry(void* p)
 	pos = &list->nodes[next_index];
 	next_index = pos->next;
       }
-    }
-  }
 
-  /* step5: restore pointers */
-  pthread_barrier_wait(&sd->barrier);
-  {
-    lr_sublist_t* sublist = &sublists[sublist_head];
-    size_t j;
-    for (j = 0; j < sublist_count; ++j, ++sublist)
-      list->nodes[sublist->head].next = sublist->saved_next;
+      /* restore next pointer. safe since saved_next used for heads. */
+      if (!lr_list_is_last_index(list, next_index))
+      {
+	const size_t next_sublist_pos = -(next_index + 1);
+	pos->next = sublists[next_sublist_pos].saved_next;
+      }
+    }
+
+    /* first a special case since no one restores it */
+    if (tid == 0)
+      list->head->next = sd->sublists_head->saved_next;
   }
 
  on_error:
