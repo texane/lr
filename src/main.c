@@ -1,20 +1,17 @@
+/* static time config */
+#define CONFIG_LR_PARALLEL 1
+#define CONFIG_LR_SUBLIST_COUNT 100 /* per thread sublist count */
+#define CONFIG_LR_SEQUENTIAL 1
+#define CONFIG_LR_THREAD_COUNT 16 /* assume >= node_count */
+#define CONFIG_LR_NODE_COUNT 1000000
+#define CONFIG_LR_ITER_COUNT 10
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <sys/types.h>
 #include <sys/time.h>
-
-
-
-/* static time config */
-
-#define CONFIG_LR_PARALLEL 1
-#define CONFIG_LR_SUBLIST_COUNT 100 /* per thread sublist count */
-#define CONFIG_LR_SEQUENTIAL 1
-#define CONFIG_LR_THREAD_COUNT 8 /* assume >= node_count */
-#define CONFIG_LR_NODE_COUNT 10000
-#define CONFIG_LR_ITER_COUNT 3
-
 
 
 /* list node */
@@ -141,8 +138,10 @@ static void __attribute__((unused)) lr_print(const lr_list_t* l)
 
 #if CONFIG_LR_PARALLEL
 
-
-#define __USE_GNU 1
+#ifndef __USE_GNU
+#define __USE_GNU
+#endif
+#include <sched.h>
 #include <pthread.h>
 
 typedef struct lr_sublist
@@ -471,6 +470,7 @@ static void lr_list_rank_par(lr_list_t* list, struct timeval* tm)
     }
 
     pthread_attr_t attr;
+    pthread_attr_init(&attr);
     pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
     pthread_create(&td->thread, &attr, lr_thread_entry, (void*)td);
   }
