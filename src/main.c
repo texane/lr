@@ -1,8 +1,8 @@
 /* static time config */
 #define CONFIG_LR_PARALLEL 1
 #define CONFIG_LR_SEQUENTIAL 1
-#define CONFIG_LR_SUBLIST_COUNT 4 /* per thread sublist count */
-#define CONFIG_LR_THREAD_COUNT 1 /* assume < node_count */
+#define CONFIG_LR_SUBLIST_COUNT 8 /* per thread sublist count */
+#define CONFIG_LR_THREAD_COUNT 16 /* assume < node_count */
 #define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
 #define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
@@ -360,7 +360,6 @@ static lr_sublist_t* lr_list_split
 
   /* choose sublist_count heads in [list_lo, list_hi[ */
   size_t list_lo = (size_t)tid * perthread_node_count;
-  const size_t list_hi = list_lo + perthread_node_count;
 
   const size_t head_index = list->head;
 
@@ -371,7 +370,7 @@ static lr_sublist_t* lr_list_split
     lr_node_t* node;
 
     /* special case if this block contains the list head */
-    if ((head_index >= list_lo) && (head_index < list_hi))
+    if ((head_index >= list_lo) && (head_index < (list_lo + list_step)))
     {
       node = lr_list_head(list);
       pos->head = head_index;
