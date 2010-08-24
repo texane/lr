@@ -3,13 +3,13 @@
 #define CONFIG_LR_SEQUENTIAL 1
 #define CONFIG_LR_SUBLIST_COUNT 1 /* per thread sublist count */
 #define CONFIG_LR_THREAD_COUNT 16 /* assume < node_count */
-#define CONFIG_LR_NODE_COUNT 8000000
+#define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
 #define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
 #define CONFIG_LR_REVERSE_LIST 0
 #define CONFIG_LR_RANDOM_LIST 1
 #define CONFIG_LR_CACHELINE_SIZE 64
-#define CONFIG_LR_CACHELINE_ALIGNED 0
+#define CONFIG_LR_CACHELINE_ALIGNED 1
 
 
 #include <stdio.h>
@@ -34,7 +34,9 @@ typedef struct lr_node
   unsigned int bits;
 
 #if CONFIG_LR_CACHELINE_ALIGNED
-  double pad[(CONFIG_LR_CACHELINE_SIZE - 12) / sizeof(double)];
+  /* this is more efficient than having 1 cacheline per struct */
+  unsigned int pad;
+  /* double pad[(CONFIG_LR_CACHELINE_SIZE - 16) / sizeof(double)]; */
 #endif
 
 } lr_node_t;
@@ -253,6 +255,10 @@ typedef struct lr_sublist
   lr_index_t last_rank;
   lr_index_t prefix_rank;
 
+#if CONFIG_LR_CACHELINE_ALIGNED
+  double pad[(CONFIG_LR_CACHELINE_SIZE - 16) / sizeof(double)];
+#endif
+
 } lr_sublist_t;
 
 typedef struct lr_shared_data
@@ -274,7 +280,11 @@ typedef struct lr_thread_data
 
 static inline lr_sublist_t* lr_sublist_alloc_array(size_t count)
 {
-  return malloc(count * sizeof(lr_sublist_t));
+  const size_t total_size = count * sizeof(lr_sublist_t);
+  lr_sublist_t* sublists;
+  if (posix_memalign((void**)&sublists, CONFIG_LR_CACHELINE_SIZE, total_size))
+    return NULL;
+  return sublists;
 }
 
 
