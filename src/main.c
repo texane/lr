@@ -3,7 +3,7 @@
 #define CONFIG_LR_SEQUENTIAL 1
 #define CONFIG_LR_SUBLIST_COUNT 1 /* per thread sublist count */
 #define CONFIG_LR_THREAD_COUNT 16 /* assume < node_count */
-#define CONFIG_LR_NODE_COUNT 1000000
+#define CONFIG_LR_NODE_COUNT 8000000
 #define CONFIG_LR_ITER_COUNT 10
 #define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
 #define CONFIG_LR_REVERSE_LIST 0
@@ -21,15 +21,22 @@
 
 /* list node */
 
-typedef int lr_index_t;
+typedef unsigned int lr_index_t;
 
 typedef struct lr_node
 {
   lr_index_t next;
   lr_index_t rank;
+
+#define LR_NODE_BIT_SUBLIST_HEAD (1 << 0)
+#define LR_NODE_BIT_LIST_END (1 << 1)
+#define LR_NODE_BIT_SUBLIST_SHIFT 2
+  unsigned int bits;
+
 #if CONFIG_LR_CACHELINE_ALIGNED
-  double pad[(CONFIG_LR_CACHELINE_SIZE - 8) / sizeof(double)];
+  double pad[(CONFIG_LR_CACHELINE_SIZE - 12) / sizeof(double)];
 #endif
+
 } lr_node_t;
 
 
@@ -38,7 +45,7 @@ typedef struct lr_node
 typedef struct lr_list
 {
   size_t size;
-  lr_node_t* head;
+  lr_index_t head;
 #if CONFIG_LR_CACHELINE_ALIGNED
   double pad[(CONFIG_LR_CACHELINE_SIZE - 16) / sizeof(double)];
 #endif
@@ -148,16 +155,17 @@ static int lr_list_create(lr_list_t** l, size_t count)
   /* allocate one and dont care about this case */
   index = lr_allocate_node();
   prev = (*l)->nodes + (size_t)index;
-  (*l)->head = prev;
+  (*l)->head = index;
 
   while (--count)
   {
     index = lr_allocate_node();
+    prev->bits = 0;
     prev->next = index;
     prev = (*l)->nodes + (size_t)index;
   }
 
-  prev->next = (lr_index_t)-(*l)->size;
+  prev->bits = LR_NODE_BIT_LIST_END;
 
   return 0;
 }
@@ -184,27 +192,19 @@ static inline const lr_node_t* lr_list_next_const
 
 static inline lr_node_t* lr_list_head(lr_list_t* l)
 {
-  return l->head;
-}
-
-
-static inline unsigned int lr_list_is_last_index
-(const lr_list_t* l, lr_index_t i)
-{
-  return i == (lr_index_t)-l->size;
-}
-
-
-static inline unsigned int lr_list_is_last_node
-(const lr_list_t* l, const lr_node_t* n)
-{
-  return lr_list_is_last_index(l, n->next);
+  return l->nodes + l->head;
 }
 
 
 static inline const lr_node_t* lr_list_head_const(const lr_list_t* l)
 {
-  return l->head;
+  return l->nodes + l->head;
+}
+
+
+static inline unsigned int lr_list_is_last_node(const lr_node_t* n)
+{
+  return n->bits & LR_NODE_BIT_LIST_END;
 }
 
 
@@ -216,8 +216,7 @@ static void lr_list_unrank(lr_list_t* l)
   for (; ; pos = lr_list_next(l, pos))
   {
     pos->rank = (lr_index_t)-1;
-
-    if (lr_list_is_last_node(l, pos))
+    if (lr_list_is_last_node(pos))
       break ;
   }
 }
@@ -229,8 +228,7 @@ static void __attribute__((unused)) lr_print(const lr_list_t* l)
   for (; ; pos = lr_list_next_const(l, pos))
   {
     printf("%u\n", pos->rank);
-
-    if (lr_list_is_last_node(l, pos))
+    if (lr_list_is_last_node(pos))
       break ;
   }
 }
@@ -246,11 +244,11 @@ static void __attribute__((unused)) lr_print(const lr_list_t* l)
 
 typedef struct lr_sublist
 {
+  /* index in the list */
   lr_index_t head;
 
-  /* index in the list */
+  /* next sublist */
   lr_index_t next;
-  lr_index_t saved_next;
 
   lr_index_t last_rank;
   lr_index_t prefix_rank;
@@ -286,17 +284,10 @@ static inline void lr_sublist_free_array(lr_sublist_t* sl)
 }
 
 
-static inline int lr_sublist_is_last_index(lr_index_t i)
-{
-  /* last node not included in sublist */
-  return i < 0;
-}
-
-
 static inline int lr_sublist_is_last_node(const lr_node_t* n)
 {
   /* last node not included in sublist */
-  return lr_sublist_is_last_index(n->next);
+  return n->bits &(LR_NODE_BIT_LIST_END | LR_NODE_BIT_SUBLIST_HEAD);
 }
 
 
@@ -304,6 +295,12 @@ static inline size_t lr_list_node_to_index
 (const lr_list_t* l, const lr_node_t* n)
 {
   return n - l->nodes;
+}
+
+
+static inline size_t lr_node_sublist_index(const lr_node_t* n)
+{
+  return n->bits >> 2;
 }
 
 
@@ -332,7 +329,7 @@ static lr_sublist_t* lr_list_split
   size_t list_lo = (size_t)tid * perthread_node_count;
   const size_t list_hi = list_lo + perthread_node_count;
 
-  const size_t head_index = lr_list_node_to_index(list, list->head);
+  const size_t head_index = list->head;
 
   /* split into equally spaced list subranges */
   for (; count; --count, ++sublist_pos)
@@ -340,25 +337,22 @@ static lr_sublist_t* lr_list_split
     lr_sublist_t* const pos = &sublists[sublist_pos];
     lr_node_t* node;
 
-    pos->last_rank = 0;
-    pos->prefix_rank = 0;
-
     /* special case if this block contains the list head */
     if ((head_index >= list_lo) && (head_index < list_hi))
     {
-      node = list->head;
-      pos->saved_next = node->next;
+      node = lr_list_head(list);
       pos->head = head_index;
+      pos->prefix_rank = 0;
       sublists_head = pos;
     }
     else
     {
       node = &list->nodes[list_lo];
-      pos->saved_next = node->next;
-      /* +1 since may be 0. assume sublist_pos < (list->size-1) */
-      node->next = (lr_index_t)-(sublist_pos + 1);
       pos->head = (lr_index_t)list_lo;
     }
+
+    node->bits |= LR_NODE_BIT_SUBLIST_HEAD |
+      (sublist_pos << LR_NODE_BIT_SUBLIST_SHIFT);
 
     /* update sublists pos, count */
     list_lo += list_step;
@@ -412,7 +406,8 @@ static void* lr_thread_entry(void* p)
 
     size_t i;
     for (i = 0; i < CONFIG_LR_THREAD_COUNT * sublist_count; ++i)
-      printf("[%lu]: %d\n", i, sublists[i].head);
+      printf("[%lu]: %u\n", i, sublists[i].head);
+    getchar();
   }
 #endif
 
@@ -420,34 +415,35 @@ static void* lr_thread_entry(void* p)
   pthread_barrier_wait(&sd->barrier);
   {
     lr_sublist_t* sublist = &sublists[sublist_head];
+    lr_index_t k = sublist_head;
     size_t j;
 
-    for (j = 0; j < sublist_count; ++j, ++sublist)
+    for (j = 0; j < sublist_count; ++j, ++k, ++sublist)
     {
       lr_node_t* pos = &list->nodes[sublist->head];
-      lr_index_t next_index = sublist->saved_next;
       lr_index_t rank = 0;
 
-      while (!lr_sublist_is_last_index(next_index))
+      while (1)
       {
+	/* encode sublist */
+	pos->bits |= k << LR_NODE_BIT_SUBLIST_SHIFT;
 	pos->rank = rank++;
-	pos = &list->nodes[next_index];
-	next_index = pos->next;
+	pos = &list->nodes[pos->next];
+
+	if (lr_sublist_is_last_node(pos))
+	  break ;
       }
 
+      sublist->last_rank = rank;
+      sublist->next = (lr_index_t)(pos->bits >> LR_NODE_BIT_SUBLIST_SHIFT);
+
       /* pos points to the last non included node */
-      if (lr_list_is_last_index(list, next_index))
+      if (lr_list_is_last_node(pos))
       {
-	/* compute now for the last item */
-	pos->rank = (lr_index_t)(list->size - 1);
-	sublist->last_rank = rank;
+	/* compute sublist and rank for the last item */
+	pos->bits |= k << LR_NODE_BIT_SUBLIST_SHIFT;
+	pos->rank = rank;
 	sublist->next = -1;
-      }
-      else
-      {
-	sublist->last_rank = rank;
-	/* next_index encodes -(sublist_index + 1) */
-	sublist->next = -(next_index + 1);
       }
     }
   }
@@ -461,7 +457,7 @@ static void* lr_thread_entry(void* p)
     lr_sublist_t* pos = sd->sublists_head;
     while (1)
     {
-      printf(" %d", pos->head);
+      printf(" %u", pos->head);
       if (pos->next == -1)
 	break;
       pos = &sublists[pos->next];
@@ -501,7 +497,7 @@ static void* lr_thread_entry(void* p)
       CONFIG_LR_SUBLIST_COUNT * CONFIG_LR_THREAD_COUNT;
     size_t i;
     for (i = 0; i < total_count; ++i)
-      printf("[%lu]: %d\n", i, sublists[i].prefix_rank);
+      printf("[%lu]: %u\n", i, sublists[i].prefix_rank);
     getchar();
   }
 #endif
@@ -509,30 +505,21 @@ static void* lr_thread_entry(void* p)
   /* step4: global update */
   pthread_barrier_wait(&sd->barrier);
   {
-    lr_sublist_t* sublist = &sublists[sublist_head];
-    size_t j;
-    for (j = 0; j < sublist_count; ++j, ++sublist)
+    size_t count = list->size / CONFIG_LR_THREAD_COUNT;
+    size_t index = (size_t)tid * count;
+    lr_node_t* pos = list->nodes + index;
+
+    /* special case for the last thread */
+    if ((index + count) > list->size)
+      count = index + count - list->size;
+
+    for ( ; count; ++pos, ++index, --count)
     {
-      lr_node_t* pos = &list->nodes[sublist->head];
-      lr_index_t next_index = sublist->saved_next;
-      while (!lr_sublist_is_last_index(next_index))
-      {
-	pos->rank += sublist->prefix_rank;
-	pos = &list->nodes[next_index];
-	next_index = pos->next;
-      }
-
-      /* restore next pointer. safe since saved_next used for heads. */
-      if (!lr_list_is_last_index(list, next_index))
-      {
-	const size_t next_sublist_pos = -(next_index + 1);
-	pos->next = sublists[next_sublist_pos].saved_next;
-      }
+      lr_sublist_t* const sublist =
+	&sublists[pos->bits >> LR_NODE_BIT_SUBLIST_SHIFT];
+      pos->rank += sublist->prefix_rank;
+      pos->bits &= ~LR_NODE_BIT_SUBLIST_HEAD;
     }
-
-    /* first a special case since no one restores it */
-    if (tid == 0)
-      list->head->next = sd->sublists_head->saved_next;
   }
 
  on_error:
@@ -608,8 +595,7 @@ static void lr_list_rank_seq(lr_list_t* l, struct timeval* tm)
   for (; ; pos = lr_list_next(l, pos), ++rank)
   {
     pos->rank = rank;
-
-    if (lr_list_is_last_node(l, pos))
+    if (lr_list_is_last_node(pos))
       break ;
   }
 
@@ -629,11 +615,11 @@ static int lr_list_check(const lr_list_t* l)
   {
     if (pos->rank != rank)
     {
-      printf("[!] lr_check @%lu, %d\n", (size_t)rank, pos->rank);
+      printf("[!] lr_check @%lu, %u\n", (size_t)rank, pos->rank);
       return -1;
     }
 
-    if (lr_list_is_last_node(l, pos))
+    if (lr_list_is_last_node(pos))
       break ;
   }
 
