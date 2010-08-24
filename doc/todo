@@ -1,17 +1,5 @@
-. implementation
-
- . la seconde phase doit etre faite en walkant
- sequentiellement la liste, et en encodant l
- index de la sous liste dans mon next:
-  . foreach (node in list->nodes) // to be done in //
-     node->rank += sublist_index(node->next).prefix_rank;
-     // restore node->next
-     node->next -= sublist_index(node->next);
-
-  . necessite d encoder pos->next differemment
-   . il faut:
-    . encode_sublist_index(pos, )
-     . next = next + sublist_index;
-    . decode_sublist_index(pos, index)
-
- . continue cuda implementation
+. step 2 must be adaptive
+ . create more sublists per thread, enable workstealing
+  . sublists are created and a workqueue wraps them
+   . the algorithm becomes:
+   while ((sublist = pop(sublists))) { subrank(sublist); }

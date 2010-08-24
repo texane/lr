@@ -5,9 +5,9 @@
 #define CONFIG_LR_THREAD_COUNT 16 /* assume < node_count */
 #define CONFIG_LR_NODE_COUNT 1000000
 #define CONFIG_LR_ITER_COUNT 10
-#define CONFIG_LR_CONTIGUOUS_LIST 0 /* below ones mutually exclusive */
+#define CONFIG_LR_CONTIGUOUS_LIST 1 /* below ones mutually exclusive */
 #define CONFIG_LR_REVERSE_LIST 0
-#define CONFIG_LR_RANDOM_LIST 1
+#define CONFIG_LR_RANDOM_LIST 0
 #define CONFIG_LR_CACHELINE_SIZE 64
 #define CONFIG_LR_CACHELINE_ALIGNED 1
 
@@ -261,11 +261,18 @@ typedef struct lr_sublist
 
 } lr_sublist_t;
 
+typedef struct lr_sublist_array
+{
+  volatile unsigned long index __attribute__((aligned));
+  size_t count;
+  lr_sublist_t sublists[1];
+} lr_sublist_array_t;
+
 typedef struct lr_shared_data
 {
   pthread_barrier_t barrier;
   lr_list_t* list;
-  lr_sublist_t* volatile sublists;
+  lr_sublist_queue_t* volatile sublists;
   lr_sublist_t* volatile sublists_head;
   struct timeval* tm;
 } lr_shared_data_t;
@@ -278,19 +285,38 @@ typedef struct lr_thread_data
 } lr_thread_data_t;
 
 
-static inline lr_sublist_t* lr_sublist_alloc_array(size_t count)
+/* sublist queue */
+
+static int lr_sublist_queue_create
+(lr_sublist_queue_t** queue, size_t count)
 {
-  const size_t total_size = count * sizeof(lr_sublist_t);
-  lr_sublist_t* sublists;
-  if (posix_memalign((void**)&sublists, CONFIG_LR_CACHELINE_SIZE, total_size))
-    return NULL;
-  return sublists;
+  const size_t total_size =
+    offsetof(lr_sublist_queue_t, sublists) + count * sizeof(lr_sublist_t);
+
+  if (posix_memalign((void**)queue, CONFIG_LR_CACHELINE_SIZE, total_size))
+    return -1;
+
+  (*queue)->count = count;
+  (*queue)->index = 0;
+
+  return 0;
 }
 
 
-static inline void lr_sublist_free_array(lr_sublist_t* sl)
+static void lr_sublist_queue_destroy(lr_sublist_queue_t* queue)
 {
-  free(sl);
+  free(queue);
+}
+
+
+static int lr_sublist_queue_pop
+(lr_sublist_queue_t* queue, lr_sublist_t** sublist)
+{
+  const size_t index = (size_t)__sync_fetch_and_add(queue->index);
+  if (index >= queue->count)
+    return -1;
+  *sublist = &queue->sublists[index];
+  return 0;
 }
 
 
@@ -387,9 +413,9 @@ static void* lr_thread_entry(void* p)
     /* start time measures */
     gettimeofday(&tms[0], NULL);
 
-    sd->sublists = lr_sublist_alloc_array
-      (CONFIG_LR_SUBLIST_COUNT * CONFIG_LR_THREAD_COUNT);
-    if (sd->sublists == NULL)
+    const int error = lr_sublist_queue_create
+      (&sd->sublists, CONFIG_LR_SUBLIST_COUNT * CONFIG_LR_THREAD_COUNT);
+    if (error == -1)
       goto on_error;
   }
 
@@ -422,6 +448,13 @@ static void* lr_thread_entry(void* p)
 #endif
 
   /* step2: compute sublist ranks */
+
+#if 0
+  struct timeval tms2[3];
+  if (tid == 0)
+    gettimeofday(&tms2[0], NULL);
+#endif
+
   pthread_barrier_wait(&sd->barrier);
   {
     lr_sublist_t* sublist = &sublists[sublist_head];
@@ -458,6 +491,16 @@ static void* lr_thread_entry(void* p)
     }
   }
 
+#if 0
+  pthread_barrier_wait(&sd->barrier);
+  if (tid == 0)
+  {
+    gettimeofday(&tms2[1], NULL);
+    timersub(&tms2[1], &tms2[0], &tms2[2]);
+    printf("step2: [%u] %lu\n", tid, tms2[2].tv_sec * 1000000 + tms2[2].tv_usec);
+  }
+#endif
+
 #if 0 /* debug */
   pthread_barrier_wait(&sd->barrier);
   if (tid == 0)
@@ -481,6 +524,11 @@ static void* lr_thread_entry(void* p)
   pthread_barrier_wait(&sd->barrier);
   if ((tid == 0) && (sd->sublists_head->next != -1))
   {
+#if 0
+    struct timeval tms[3];
+    gettimeofday(&tms[0], NULL);
+#endif
+
     lr_index_t prev_rank = sd->sublists_head->last_rank;
     lr_sublist_t* pos = &sd->sublists[sd->sublists_head->next];
 
@@ -496,6 +544,12 @@ static void* lr_thread_entry(void* p)
       prev_rank += pos->last_rank;
       pos = &sublists[pos->next];
     }
+
+#if 0
+    gettimeofday(&tms[1], NULL);
+    timersub(&tms[1], &tms[0], &tms[2]);
+    printf("step3: %lu\n", tms[2].tv_sec * 1000000 + tms[2].tv_usec);
+#endif
   }
 
 #if 0 /* debug */
@@ -513,6 +567,12 @@ static void* lr_thread_entry(void* p)
 #endif
 
   /* step4: global update */
+
+#if 0
+  if (tid == 0)
+    gettimeofday(&tms2[0], NULL);
+#endif
+
   pthread_barrier_wait(&sd->barrier);
   {
     size_t count = list->size / CONFIG_LR_THREAD_COUNT;
@@ -532,12 +592,22 @@ static void* lr_thread_entry(void* p)
     }
   }
 
+#if 0
+  pthread_barrier_wait(&sd->barrier);
+  if (tid == 0)
+  {
+    gettimeofday(&tms2[1], NULL);
+    timersub(&tms2[1], &tms2[0], &tms2[2]);
+    printf("step4: [%u] %lu\n", tid, tms2[2].tv_sec * 1000000 + tms2[2].tv_usec);
+  }
+#endif
+
  on_error:
   pthread_barrier_wait(&sd->barrier);
   if (tid == 0)
   {
     if (sublists != NULL)
-      lr_sublist_free_array(sublists);
+      lr_sublist_queue_destroy(sublists);
 
     gettimeofday(&tms[1], NULL);
     timersub(&tms[1], &tms[0], sd->tm);
