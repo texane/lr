@@ -519,11 +519,6 @@ static void* lr_thread_entry(void* p)
   pthread_barrier_wait(&sd->barrier);
   if ((tid == 0) && (sd->sublists_head->next != -1))
   {
-#if 0
-    struct timeval tms[3];
-    gettimeofday(&tms[0], NULL);
-#endif
-
     lr_index_t prev_rank = sd->sublists_head->last_rank;
     lr_sublist_t* pos = &sublists[sd->sublists_head->next];
 
@@ -539,12 +534,6 @@ static void* lr_thread_entry(void* p)
       prev_rank += pos->last_rank;
       pos = &sublists[pos->next];
     }
-
-#if 0
-    gettimeofday(&tms[1], NULL);
-    timersub(&tms[1], &tms[0], &tms[2]);
-    printf("step3: %lu\n", tms[2].tv_sec * 1000000 + tms[2].tv_usec);
-#endif
   }
 
 #if 0 /* debug */
