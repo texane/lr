@@ -1,2 +1,2 @@
 #!/usr/bin/env sh
-gcc -Wall -O3 ../src/main.c -lpthread
+gcc -Wall -O3 -march=native ../src/main.c -lpthread

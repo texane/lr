@@ -34,9 +34,12 @@ typedef struct lr_node
   unsigned int bits;
 
 #if CONFIG_LR_CACHELINE_ALIGNED
+#if 1
   /* this is more efficient than having 1 cacheline per struct */
   unsigned int pad;
-  /* double pad[(CONFIG_LR_CACHELINE_SIZE - 16) / sizeof(double)]; */
+#else
+  double pad[(CONFIG_LR_CACHELINE_SIZE - 16) / sizeof(double)];
+#endif
 #endif
 
 } lr_node_t;
@@ -265,7 +268,13 @@ typedef struct lr_sublist_queue
 {
   volatile unsigned long index __attribute__((aligned));
   size_t count;
+
+#if CONFIG_LR_CACHELINE_ALIGNED
   lr_sublist_t sublists[1] __attribute__((aligned(CONFIG_LR_CACHELINE_SIZE)));
+#else
+  lr_sublist_t sublists[1];
+#endif
+
 } lr_sublist_queue_t;
 
 typedef struct lr_shared_data
@@ -295,7 +304,7 @@ static int lr_sublist_queue_create
 
   if (posix_memalign((void**)queue, CONFIG_LR_CACHELINE_SIZE, total_size))
     return -1;
-
+  
   (*queue)->count = count;
   (*queue)->index = 0;
 
@@ -325,7 +334,7 @@ static inline int lr_sublist_queue_pop
 static inline int lr_sublist_is_last_node(const lr_node_t* n)
 {
   /* last node not included in sublist */
-  return n->bits &(LR_NODE_BIT_LIST_END | LR_NODE_BIT_SUBLIST_HEAD);
+  return n->bits & (LR_NODE_BIT_LIST_END | LR_NODE_BIT_SUBLIST_HEAD);
 }
 
 
