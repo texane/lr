@@ -265,7 +265,7 @@ typedef struct lr_sublist_queue
 {
   volatile unsigned long index __attribute__((aligned));
   size_t count;
-  lr_sublist_t sublists[1];
+  lr_sublist_t sublists[1] __attribute__((aligned(CONFIG_LR_CACHELINE_SIZE)));
 } lr_sublist_queue_t;
 
 typedef struct lr_shared_data
@@ -312,6 +312,11 @@ static void lr_sublist_queue_destroy(lr_sublist_queue_t* queue)
 static inline int lr_sublist_queue_pop
 (lr_sublist_queue_t* queue, size_t* index)
 {
+  /* we ensure each thread increments queue->index
+     one time more it should, so index ends up to
+     be count + threadcount, which is not a problem.
+   */
+
   *index = (size_t)__sync_fetch_and_add(&queue->index, 1);
   return *index < queue->count ? 0 : -1;
 }
