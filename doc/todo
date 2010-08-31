@@ -1,5 +1,16 @@
-. step 2 must be adaptive
- . create more sublists per thread, enable workstealing
-  . sublists are created and a workqueue wraps them
-   . the algorithm becomes:
-   while ((sublist = pop(sublists))) { subrank(sublist); }
+. enable prefetching
+ . in the first pass should prefetch N next sublist nodes
+  . mais ca rajoute des ifs
+ . l idee serait d avoir une fonction:
+  . last_index = prefetch_nexts(count);
+  . et transformer le main while (1) en:
+  . while (1)
+    {
+     nfetched = prefetch_nexts(count);
+     for (i = 0; i < nfetched; ++i)
+     {
+       pos->bits = ;
+       pos->ranks = ;
+       pos = list->nodes[pos->next];
+     }
+    }

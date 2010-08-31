@@ -407,6 +407,23 @@ static lr_sublist_t* lr_list_split
   return sublists_head;
 }
 
+static inline size_t prefetch_nexts
+(const lr_list_t* list, const lr_node_t* pos, size_t count)
+{
+  size_t saved_count = count;
+
+  while (1)
+  {
+    __builtin_prefetch(pos);
+
+    pos = &list->nodes[pos->next];
+    if ((!--count) || lr_sublist_is_last_node(pos))
+      break ;
+  }
+
+  return saved_count - count;
+}
+
 static void* lr_thread_entry(void* p)
 {
   lr_thread_data_t* const td = (lr_thread_data_t*)p;
@@ -477,10 +494,15 @@ static void* lr_thread_entry(void* p)
 
       while (1)
       {
-	/* encode sublist index */
-	pos->bits |= sublist_index << LR_NODE_BIT_SUBLIST_SHIFT;
-	pos->rank = rank++;
-	pos = &list->nodes[pos->next];
+	size_t nfetched = prefetch_nexts(list, pos, 4);
+
+	while ((nfetched--))
+	{
+	  /* encode sublist index */
+	  pos->bits |= sublist_index << LR_NODE_BIT_SUBLIST_SHIFT;
+	  pos->rank = rank++;
+	  pos = &list->nodes[pos->next];
+	}
 
 	if (lr_sublist_is_last_node(pos))
 	  break ;
